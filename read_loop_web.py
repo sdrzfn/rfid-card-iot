@@ -5,9 +5,11 @@ import time
 from playwright.sync_api import sync_playwright
 
 reader = SimpleMFRC522()
+IP_PCINKA = "192.168.17.225"
+PORT_CDP = "9222"
 
 # ==================== KONFIGURASI TARGET WEBSITE ====================
-URL_TARGET = "https://sadrakhzp.vercel.app/" 
+# URL_TARGET = "https://nama-website.com/" 
 # ====================================================================
 
 def konversi_ke_sistem_inka(id_sensor):
@@ -35,21 +37,38 @@ def konversi_ke_sistem_inka(id_sensor):
 
 # --- PROSES UTAMA DENGAN BROWSER OTOMATISASI ---
 with sync_playwright() as p:
-    print("Membuka browser siluman di latar belakang...")
+    cdp_url = f"http://{IP_PCINKA}:{PORT_CDP}"
+    # print("Membuka browser siluman di latar belakang...")
+    print (f"Menghubungkan ke PC: {cdp_url}")
     # headless=True artinya browser berjalan tanpa memunculkan jendela grafis (cocok untuk CLI Raspberry)
-    browser = p.chromium.launch(
-        executable_path='/usr/bin/chromium-browser',
-        headless=True
-    )
-    page = browser.new_page()
+    
+    # INI BUAT CHROMIUM DI RASPBERRY
+    # browser = p.chromium.launch(
+    #     executable_path='/usr/bin/chromium-browser',
+    #     headless=True
+    # )
+    # page = browser.new_page()
     
     try:
-        print(f"Menghubungkan ke {URL_TARGET}...")
-        page.goto(URL_TARGET)
-        print("Website berhasil dimuat dan siap menerima RFID.\n")
+        # ---- INI BUAT KE CDP PC INKA ----
+        browser = p.chromium.connect_over_cdp(cdp_url)
+                
+        # Mengakses context dan mengambil tab/halaman pertama yang terbuka di Kios
+        default_context = browser.contexts[0]
+        page = default_context.pages[0]
         
-        print("=== PROGRAM RFID STANDBY SYNC PT INKA (BROWSER DRIVER) ===")
+        print(" -> [SUKSES] Berhasil terhubung dan mengendalikan browser PC Kios!\n")
+        
+        print("=== PROGRAM RFID STANDBY SYNC PT INKA (CDP BYPASS) ===")
         print("Program berjalan terus-menerus. Tekan Ctrl+C untuk menghentikan.\n")
+        
+        # ---- UNCOMMENT INI JIKA BUTUH MENJALANKAN DARI RASPBERRY ----
+        # print(f"Menghubungkan ke {URL_TARGET}...")
+        # page.goto(URL_TARGET)
+        # print("Website berhasil dimuat dan siap menerima RFID.\n")
+        
+        # print("=== PROGRAM RFID STANDBY SYNC PT INKA (BROWSER DRIVER) ===")
+        # print("Program berjalan terus-menerus. Tekan Ctrl+C untuk menghentikan.\n")
         
         while True:
             print("Menunggu kartu di-tap...")
@@ -63,19 +82,16 @@ with sync_playwright() as p:
             
             print("Mengisi form secara otomatis...")
             try:
-                # 1. Isi field Name (mencari elemen berdasarkan atribut name="name")
                 page.locator('input[name="name"]').fill("Mesin RFID Lantai Pabrik")
                 
-                # 2. Isi field Email (mencari elemen berdasarkan atribut name="email")
                 page.locator('input[name="email"]').fill("rfid-pabrik@inka.co.id")
                 
-                # 3. Isi field Message dengan hasil konversi RFID
                 page.locator('textarea[name="message"]').fill(f"ID RFID Terdeteksi: {id_final_inka}")
                 
-                # 4. Klik tombol submit (mencari tag button dengan tipe submit atau teks tertentu)
-                page.locator('button[type="submit"]').click()
+                # UNCOMMENT INI JIKA INGIN AUTO SUBMIT
+                # page.locator('button[type="submit"]').click()
                 
-                print(" -> [SUKSES] Form berhasil terisi dan disubmit oleh browser driver!")
+                print(" -> [SUKSES] Isian form berhasil terisi oleh browser driver!")
                 
                 # Berikan jeda sejenak lalu reload halaman agar form kosong kembali untuk kartu berikutnya
                 time.sleep(3)
@@ -85,7 +101,7 @@ with sync_playwright() as p:
             except Exception as e:
                 print(f" -> [GAGAL] Gagal mengisi form di browser: {e}")
                 # Jika terjadi error/putus koneksi, coba reload halaman web
-                page.goto(URL_TARGET)
+                # page.goto(URL_TARGET)
             
             print("\nSilakan angkat kartu...\n")
             time.sleep(2)
@@ -93,6 +109,6 @@ with sync_playwright() as p:
     except KeyboardInterrupt:
         print("\nProgram dihentikan oleh pengguna.")
     finally:
-        browser.close()
+        # browser.close()
         GPIO.cleanup()
         print("Browser ditutup & GPIO Cleanup selesai.")
