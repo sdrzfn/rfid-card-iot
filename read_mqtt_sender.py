@@ -1,66 +1,101 @@
 #!/usr/bin/env python3
+import json
+import logging
+import time
+
+import paho.mqtt.client as mqtt
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
-import time
-import paho.mqtt.client as mqtt # Library MQTT
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("sender")
+
+# ==================== KONFIGURASI MQTT ====================
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT = 1883
+MQTT_TOPIC = "inka/rfid_scan_k+y8OcXqUXalaoynSJlAXReRicthOTH5OI+sxdbieuE="
+MQTT_USER = None   # hanya untuk broker privat
+MQTT_PASS = None
+DEVICE_ID = "rpi-kios01"
+# ==========================================================
+
+# Kartu khusus (hasil tes) -> pindahkan hardcode ke sini
+OVERRIDE = {769177167877: "0680007347"}
 
 reader = SimpleMFRC522()
 
-# ==================== KONFIGURASI MQTT ====================
-MQTT_BROKER = "broker.hivemq.com" # Broker publik gratis untuk tes
-MQTT_PORT = 1883
-MQTT_TOPIC = "rfid_scan" # Buat topik unik Anda sendiri
-# ==========================================================
 
 def konversi_ke_sistem_inka(id_sensor):
-    """Fungsi khusus konversi ID menjadi format desimal PT INKA"""
-    if id_sensor == 769177167877:
-        return "0680007347"
-        
-    hex_str = f"{id_sensor:010X}"
+    """Konversi UID ke desimal PT INKA. Mengembalikan None jika gagal."""
+    if id_sensor in OVERRIDE:
+        return OVERRIDE[id_sensor]
     try:
+        hex_str = f"{id_sensor:010X}"
         byte4 = int(hex_str[0:2], 16)
         byte3 = int(hex_str[2:4], 16)
         byte2 = int(hex_str[4:6], 16)
         byte1 = int(hex_str[6:8], 16)
-        
-        target_hex_1 = (byte1 ^ 0x6C)
-        target_hex_2 = (byte2 ^ 0x96)
-        target_hex_3 = (byte3 ^ 0x38)
-        target_hex_4 = (byte4 ^ 0x1C)
-        
-        hex_gabungan = f"{target_hex_1:02X}{target_hex_2:02X}{target_hex_3:02X}{target_hex_4:02X}"
-        desimal_inka = int(hex_gabungan, 16)
-        return f"{desimal_inka:010d}"
-    except Exception:
-        return "0680007347"
 
-# Inisialisasi MQTT Client
-client = mqtt.Client()
-try:
-    print(f"Menghubungkan ke MQTT Broker ({MQTT_BROKER})...")
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    print("Terhubung ke Broker!\n")
-except Exception as e:
-    print(f"Gagal konek MQTT: {e}")
-    exit()
+        hex_gabungan = (
+            f"{byte1 ^ 0x6C:02X}{byte2 ^ 0x96:02X}"
+            f"{byte3 ^ 0x38:02X}{byte4 ^ 0x1C:02X}"
+        )
+        return f"{int(hex_gabungan, 16):010d}"
+    except Exception as e:
+        log.error("Konversi gagal untuk %s: %s", id_sensor, e)
+        return None
+
+
+def buat_client():
+    try:
+        c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"{DEVICE_ID}-pub")
+    except AttributeError:
+        c = mqtt.Client(client_id=f"{DEVICE_ID}-pub")
+
+    if MQTT_USER:
+        c.username_pw_set(MQTT_USER, MQTT_PASS)
+
+    def on_connect(client, userdata, flags, rc, *args):
+        log.info("Terhubung ke broker: %s", rc)
+
+    def on_disconnect(client, userdata, *args):
+        log.warning("Terputus dari broker, paho akan mencoba reconnect otomatis")
+
+    c.on_connect = on_connect
+    c.on_disconnect = on_disconnect
+    c.reconnect_delay_set(min_delay=1, max_delay=30)
+    return c
+
+
+client = buat_client()
+client.connect_async(MQTT_BROKER, MQTT_PORT, keepalive=30)
+client.loop_start()  # buat koneksi, ping, dan reconnect
 
 try:
-    print("=== PROGRAM RFID STANDBY MQTT PT INKA ===")
+    log.info("=== PROGRAM RFID STANDBY MQTT PT INKA ===")
     while True:
-        print("Menunggu kartu di-tap...")
-        id_kartu, text = reader.read()
-        id_final_inka = konversi_ke_sistem_inka(id_kartu)
-        
-        print(f"\nID Hasil Konversi: {id_final_inka}")
-        
-        # Kirim data ke MQTT Broker
-        print("Mengirim data via MQTT...")
-        client.publish(MQTT_TOPIC, id_final_inka)
-        print(" -> [SUKSES] Data terkirim ke Broker!")
-        
+        log.info("Menunggu kartu di-tap...")
+        id_kartu, _ = reader.read()
+        id_inka = konversi_ke_sistem_inka(id_kartu)
+        if not id_inka:
+            continue
+
+        payload = json.dumps({"uid": id_inka, "device": DEVICE_ID, "ts": int(time.time())})
+        info = client.publish(MQTT_TOPIC, payload, qos=1, retain=False)
+        try:
+            info.wait_for_publish(timeout=5)
+        except Exception:
+            pass
+
+        if info.is_published():
+            log.info("[SUKSES] UID %s terkirim", id_inka)
+        else:
+            log.error("[GAGAL] UID %s belum terkirim (koneksi bermasalah?)", id_inka)
+
         time.sleep(2)
 except KeyboardInterrupt:
-    print("\nProgram dihentikan.")
+    log.info("Program dihentikan.")
 finally:
+    client.loop_stop()
+    client.disconnect()
     GPIO.cleanup()
