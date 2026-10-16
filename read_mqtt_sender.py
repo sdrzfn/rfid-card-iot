@@ -13,7 +13,7 @@ log = logging.getLogger("sender")
 # ==================== KONFIGURASI MQTT ====================
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-MQTT_TOPIC = "inka/rfid_scan_k+y8OcXqUXalaoynSJlAXReRicthOTH5OI+sxdbieuE="
+MQTT_TOPIC = "inka/rfid_scan"
 MQTT_USER = None   # hanya untuk broker privat
 MQTT_PASS = None
 DEVICE_ID = "rpi-kios01"

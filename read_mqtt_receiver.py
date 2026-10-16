@@ -13,7 +13,7 @@ log = logging.getLogger("receiver")
 # ==================== KONFIGURASI MQTT ====================
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-MQTT_TOPIC = "inka/rfid_scan_k+y8OcXqUXalaoynSJlAXReRicthOTH5OI+sxdbieuE="
+MQTT_TOPIC = "inka/rfid_scan"
 MQTT_USER = None
 MQTT_PASS = None
 CLIENT_ID = "kios-windows-01-sub"   # dibedakan dengan sender
