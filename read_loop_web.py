@@ -16,6 +16,10 @@ def konversi_ke_sistem_inka(id_sensor):
     """Fungsi khusus konversi ID menjadi format desimal PT INKA"""
     if id_sensor == 769177167877:
         return "0680007347"
+    elif id_sensor == 249563743628:
+        return "2233998138"
+    elif id_sensor == 594774230330:
+        return "2236513162"
         
     hex_str = f"{id_sensor:010X}"
     try:
